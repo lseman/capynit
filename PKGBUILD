@@ -93,4 +93,7 @@ package() {
         sed -i 's/ENCRYPTED_ROOTFS=false/ENCRYPTED_ROOTFS=true/g' $capypath/init
     fi
 
+    sudo cp /usr/lib/libncursesw* $capypath/lib/
+    sudo cp /usr/lib/libedit* $capypath/lib/
+
 }
