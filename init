@@ -112,24 +112,30 @@ done < module_list.txt
 ENCRYPTED_ROOTFS=false
 # do stuff to deal with encrypted rootfs
 
-if [ $ENCRYPTED_ROOTFS == true ]; then
+args=$(cat /proc/cmdline)
+echo "CAPY: Capybara initramfs v0.1" > /dev/kmsg
+echo "CAPY: Command line: $args" > /dev/kmsg
+
+# mount the root filesystem, depending if the encrypt flag is set
+if [ -n "$ENCRYPTED_ROOTFS" ]; then
     echo "CAPY: Encrypted rootfs detected" > /dev/kmsg
     # get uuid from /proc/cmdline
     rootfsuuid=$(cat /proc/cmdline | grep -oP "root=UUID=\K[^\s]+")
     echo "CAPY: rootfs uuid: $rootfsuuid" > /dev/kmsg
     # get the filesystem
-    $filesystem_root=$(findfs "UUID"="$rootfsuuid")
+    filesystem_root=$(findfs "UUID"="$rootfsuuid")
     cryptsetup open --type luks $filesystem_root root
+    filesystem_root=/dev/mapper/root
+    # mount the root filesystem
+    check_filesystem $filesystem_root
+    mount -o ro $filesystem_root /mnt/root
 else
-
-args=$(cat /proc/cmdline)
-echo "CAPY: Capybara initramfs v0.1" > /dev/kmsg
-echo "CAPY: Command line: $args" > /dev/kmsg
+    echo "CAPY: Unencrypted rootfs detected" > /dev/kmsg
+    uuidlabel_root || rescue_shell "Error while mounting rootfs"
+fi
 
 # disable kernel messages from popping onto the screen
 echo 0 > /proc/sys/kernel/printk
-
-uuidlabel_root || rescue_shell "Error while mounting rootfs"
 
 echo "CAPY: Good to go. Switching to the real root." > /dev/kmsg
 
