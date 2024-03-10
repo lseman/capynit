@@ -138,7 +138,7 @@ chroot ${INITRAMFS_DIR} depmod -a
 # Create the initramfs image
 cd ${INITRAMFS_DIR}
 rm -rf /boot/${IMGNAME}.img
-#find . -print0 | cpio --null --create --verbose --format=newc | gzip > /boot/gentoo.img
+#find . -print0 | cpio --null --create --verbose --format=newc | gzip > /boot/${IMGNAME}.img
 find . -print0 | cpio --null --create --verbose --format=newc > /tmp/${IMGNAME}.cpio
 # compress cpio with zstd
 zstd /tmp/${IMGNAME}.cpio -o /boot/${IMGNAME}.img
@@ -169,15 +169,15 @@ cmdline_offs=$((cmdline_offs + align - cmdline_offs % align))
 initrd_offs=$((cmdline_offs + $(stat -Lc%s "kernel_cmd.txt")))
 initrd_offs=$((initrd_offs + align - initrd_offs % align))
 
-linux_offs=$((initrd_offs + $(stat -Lc%s "/boot/combined_gentoo.img")))
+linux_offs=$((initrd_offs + $(stat -Lc%s "/boot/combined_${IMGNAME}.img")))
 linux_offs=$((linux_offs + align - linux_offs % align))
 
 # Using objcopy to add sections and change VMAs
 objcopy \
     --add-section .osrel="/etc/os-release" --change-section-vma .osrel=$(printf 0x%x $osrel_offs) \
     --add-section .cmdline="kernel_cmd.txt" --change-section-vma .cmdline=$(printf 0x%x $cmdline_offs) \
-    --add-section .initrd="/boot/combined_gentoo.img" --change-section-vma .initrd=$(printf 0x%x $initrd_offs) \
-    --add-section .linux="/boot/vmlinuz-gentoo" --change-section-vma .linux=$(printf 0x%x $linux_offs) \
+    --add-section .initrd="/boot/combined_${IMGNAME}.img" --change-section-vma .initrd=$(printf 0x%x $initrd_offs) \
+    --add-section .linux="/boot/vmlinuz-${IMGNAME}" --change-section-vma .linux=$(printf 0x%x $linux_offs) \
     "/usr/lib/systemd/boot/efi/linuxx64.efi.stub" "linux.efi"
 
 echo "Unified kernel image created: linux.efi"
