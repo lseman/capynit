@@ -145,7 +145,7 @@ zstd /tmp/${IMGNAME}.cpio -o /boot/${IMGNAME}.img
 
 cd /boot
 
-cp /usr/src/linux/arch/x86/boot/bzImage /boot/vmlinuz-${IMGNAME}
+cp /usr/lib/modules/${KERNEL_VERSION}/vmlinuz /boot/vmlinuz-${IMGNAME}
 # Generate new combined_init.img
 cat /boot/intel-ucode.img /boot/${IMGNAME}.img > /boot/combined_${IMGNAME}.img
 

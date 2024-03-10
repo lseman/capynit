@@ -51,7 +51,7 @@ package() {
     mkdir -p $capypath
 
     mkdir --parents $capypath/{dev,mnt/root,proc,root,sys,usr}
-    cp --archive /dev/{null,console,tty,sda1} $capypath/dev/
+    cp --archive /dev/{null,console,tty} $capypath/dev/
     mkdir -p $capypath/usr/{bin,lib,lib64,etc}
     # create symbolic links
     # bin point to usr/bin
@@ -76,7 +76,7 @@ package() {
 
     # if _encrypt is true, then we need to append more utils to binlits
     if $_encrypt; then
-        binlits+=("cryptsetup" "dmsetup" "cryptsetup-reencrypt")
+        binlits+=("cryptsetup" "dmsetup")
     fi
 
     for binlit in "${binlits[@]}"; do
