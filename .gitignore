@@ -1,0 +1,6 @@
+bash-static/*
+chimerautils/*
+pkg/*
+src/*
+pax-utils/*
+*.tar.xz
