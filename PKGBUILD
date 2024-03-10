@@ -28,7 +28,7 @@ build() {
     pwd
     mkdir -p build
     cd build
-    arch-meson ..
+    meson --prefix=/usr -Dlibedit=disabled -Dcolor_ls=false ..
     ninja
 
     # build pax-utils
@@ -43,6 +43,7 @@ build() {
     cd "$srcdir/bash-static"
     pwd
     bash build.sh linux 0
+
 }
 
 package() {
@@ -93,7 +94,7 @@ package() {
         sed -i 's/ENCRYPTED_ROOTFS=false/ENCRYPTED_ROOTFS=true/g' $capypath/init
     fi
 
-    sudo cp /usr/lib/libncursesw* $capypath/lib/
-    sudo cp /usr/lib/libedit* $capypath/lib/
+    #sudo cp /usr/lib/libncursesw* $capypath/lib/
+    #sudo cp /usr/lib/libedit* $capypath/lib/
 
 }
