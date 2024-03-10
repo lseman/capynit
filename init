@@ -109,6 +109,19 @@ do
    load_module $mod_path
 done < module_list.txt
 
+ENCRYPTED_ROOTFS=false
+# do stuff to deal with encrypted rootfs
+
+if [ $ENCRYPTED_ROOTFS == true ]; then
+    echo "CAPY: Encrypted rootfs detected" > /dev/kmsg
+    # get uuid from /proc/cmdline
+    rootfsuuid=$(cat /proc/cmdline | grep -oP "root=UUID=\K[^\s]+")
+    echo "CAPY: rootfs uuid: $rootfsuuid" > /dev/kmsg
+    # get the filesystem
+    $filesystem_root=$(findfs "UUID"="$rootfsuuid")
+    cryptsetup open --type luks $filesystem_root root
+else
+
 args=$(cat /proc/cmdline)
 echo "CAPY: Capybara initramfs v0.1" > /dev/kmsg
 echo "CAPY: Command line: $args" > /dev/kmsg

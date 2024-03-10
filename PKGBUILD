@@ -1,4 +1,5 @@
 pkgname=capynit
+_encrypt=true
 pkgver=0.1
 pkgrel=1
 pkgdesc="Custom capybara initramfs"
@@ -10,7 +11,10 @@ source=("git+https://github.com/chimera-linux/chimerautils.git"
         "git+https://github.com/robxu9/bash-static.git"
         "git+https://anongit.gentoo.org/git/proj/pax-utils.git"
         init)
-md5sums=('SKIP') # Use 'SKIP' for Git sources
+md5sums=('SKIP'
+         'SKIP'
+         'SKIP'
+         'c78fc1acc5f01752dd5dce6a505a357f')
 options=('!strip' '!emptydirs' 'staticlibs' '!lto')
 prepare() {
     # arch stuff for lddtree
@@ -68,7 +72,13 @@ package() {
     DESTDIR="$capypath" meson install
 
     PAXUTIL=${srcdir}/pax-utils
-    binlits=("modprobe" "depmod" "insmod" "modinfo" "reboot" "switch_root")
+    binlits=("modprobe" "depmod" "insmod" "modinfo" "reboot" "switch_root" "mount" "umount" "fsck")
+
+    # if _encrypt is true, then we need to append more utils to binlits
+    if $_encrypt; then
+        binlits+=("cryptsetup" "dmsetup" "cryptsetup-reencrypt")
+    fi
+
     for binlit in "${binlits[@]}"; do
         bindir=$(which $binlit)
         $PAXUTIL/lddtree.py --copy-to-tree $capypath $bindir
@@ -76,5 +86,11 @@ package() {
 
     cp $srcdir/bash-static/releases/bash $capypath/usr/bin/bash
     cp $srcdir/init $capypath/init
+
+    # if _encrypt is true, then we need to add some lines to init
+    if $_encrypt; then
+        # we change ENCRYPTED_ROOTFS to true in init
+        sed -i 's/ENCRYPTED_ROOTFS=false/ENCRYPTED_ROOTFS=true/g' $capypath/init
+    fi
 
 }
