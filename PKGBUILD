@@ -28,7 +28,7 @@ build() {
     pwd
     mkdir -p build
     cd build
-    meson --prefix=/usr -Dlibedit=disabled -Dcolor_ls=false ..
+    meson --prefix=/usr -Dprefer_static=true -Dlibedit=disabled -Dcolor_ls=false ..
     ninja
 
     # build pax-utils
