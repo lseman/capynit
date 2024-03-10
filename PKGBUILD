@@ -72,7 +72,7 @@ package() {
     DESTDIR="$capypath" meson install
 
     PAXUTIL=${srcdir}/pax-utils
-    binlits=("modprobe" "depmod" "insmod" "modinfo" "reboot" "switch_root" "mount" "umount" "fsck")
+    binlits=("modprobe" "depmod" "insmod" "modinfo" "reboot" "switch_root" "mount" "umount" "fsck" "findfs")
 
     # if _encrypt is true, then we need to append more utils to binlits
     if $_encrypt; then
