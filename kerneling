@@ -3,10 +3,9 @@
 # get args
 IMGNAME=$1
 IMGUUID=$2
-MODULEDIR=$3
 # Define where your custom initramfs directory structure will be located
 INITRAMFS_DIR="/opt/capynit"
-KERNEL_VERSION=$3
+KERNEL_VERSION=$(uname -r)
 MODULES_DIR="/usr/lib/modules/${KERNEL_VERSION}"
 TARGET_DIR="${INITRAMFS_DIR}/usr/lib/modules/${KERNEL_VERSION}"
 # Define the output path for the initramfs image
@@ -132,3 +131,61 @@ cp "${MODULES_DIR}/modules.builtin.modinfo" "${TARGET_DIR}"
 
 # create modules_list.txt
 find "${TARGET_DIR}" -name "*.ko" -exec basename {} \; > ${INITRAMFS_DIR}/module_list.txt
+
+# create the depmod
+chroot ${INITRAMFS_DIR} depmod -a
+
+# Create the initramfs image
+cd ${INITRAMFS_DIR}
+rm -rf /boot/${IMGNAME}.img
+#find . -print0 | cpio --null --create --verbose --format=newc | gzip > /boot/${IMGNAME}.img
+find . -print0 | cpio --null --create --verbose --format=newc > /tmp/${IMGNAME}.cpio
+# compress cpio with zstd
+zstd /tmp/${IMGNAME}.cpio -o /boot/${IMGNAME}.img
+
+cd /boot
+
+cp /usr/lib/modules/${KERNEL_VERSION}/vmlinuz /boot/vmlinuz-${IMGNAME}
+# Generate new combined_init.img
+cat /boot/intel-ucode.img /boot/${IMGNAME}.img > /boot/combined_${IMGNAME}.img
+
+echo "New combined_init.img created"
+
+# Generate new kernel_cmd.txt
+kernel_cmdline="root=UUID=${IMGUUID} zswap.enabled=0"
+echo $kernel_cmdline > kernel_cmd.txt
+
+# Fetching section alignment from the EFI stub
+align="$(objdump -p /usr/lib/systemd/boot/efi/linuxx64.efi.stub | awk '{ if ($1 == "SectionAlignment"){print $2} }')"
+align=$((16#$align))
+
+# Calculating offsets
+osrel_offs="$(objdump -h "/usr/lib/systemd/boot/efi/linuxx64.efi.stub" | awk 'NF==7 {size=strtonum("0x"$3); offset=strtonum("0x"$4)} END {print size + offset}')"
+osrel_offs=$((osrel_offs + align - osrel_offs % align))
+
+cmdline_offs=$((osrel_offs + $(stat -Lc%s "/etc/os-release")))
+cmdline_offs=$((cmdline_offs + align - cmdline_offs % align))
+
+initrd_offs=$((cmdline_offs + $(stat -Lc%s "kernel_cmd.txt")))
+initrd_offs=$((initrd_offs + align - initrd_offs % align))
+
+linux_offs=$((initrd_offs + $(stat -Lc%s "/boot/combined_${IMGNAME}.img")))
+linux_offs=$((linux_offs + align - linux_offs % align))
+
+# Using objcopy to add sections and change VMAs
+objcopy \
+    --add-section .osrel="/etc/os-release" --change-section-vma .osrel=$(printf 0x%x $osrel_offs) \
+    --add-section .cmdline="kernel_cmd.txt" --change-section-vma .cmdline=$(printf 0x%x $cmdline_offs) \
+    --add-section .initrd="/boot/combined_${IMGNAME}.img" --change-section-vma .initrd=$(printf 0x%x $initrd_offs) \
+    --add-section .linux="/boot/vmlinuz-${IMGNAME}" --change-section-vma .linux=$(printf 0x%x $linux_offs) \
+    "/usr/lib/systemd/boot/efi/linuxx64.efi.stub" "linux.efi"
+
+echo "Unified kernel image created: linux.efi"
+
+mv linux.efi /boot/EFI/Linux/${IMGNAME}.efi
+
+echo "Unified kernel image moved to /boot/EFI/Linux/${IMGNAME}.efi"
+
+rm kernel_cmd.txt
+
+#efibootmgr --create --disk /dev/nvme0n1p1 --part partition_number --label "Arch Linux" --loader '\EFI\linux\Linux.efi' --unicode
