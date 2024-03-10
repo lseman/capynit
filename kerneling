@@ -1,0 +1,191 @@
+#!/bin/bash
+
+# get args
+IMGNAME=$1
+IMGUUID=$2
+# Define where your custom initramfs directory structure will be located
+INITRAMFS_DIR="/opt/capynit"
+KERNEL_VERSION=$(uname -r)
+MODULES_DIR="/usr/lib/modules/${KERNEL_VERSION}"
+TARGET_DIR="${INITRAMFS_DIR}/usr/lib/modules/${KERNEL_VERSION}"
+# Define the output path for the initramfs image
+rm -rf "${TARGET_DIR}"
+# Prepare directories in the initramfs structure for modules
+mkdir -p "${INITRAMFS_DIR}/lib/modules/${KERNEL_VERSION}"
+
+echo "Copying essential modules..."
+
+dir_blacklist=("virt" "net" "thermal" "hwmon" "events")
+copy_module(){
+    local module=$1
+    # ignore modules starting with snd
+    [[ "${module}" == snd* ]] && return
+    # ignore modules starting with intel
+    [[ "${module}" == intel* ]] && return
+    # ignore xt modules
+    [[ "${module}" == xt_* ]] && return
+    # ignore nf modules
+    [[ "${module}" == nf_* ]] && return
+    # ignore modules starting with ip
+    [[ "${module}" == ip* ]] && return
+
+    # Use fd to find the module file and copy it directly to the target directory
+    local module_path=$(find "${MODULES_DIR}" -name "${module}.ko" -or -name "${module}.ko.zst" | head -n 1)
+    #cp -a "${module_path}" "${TARGET_DIR}"
+
+    # Determine the relative directory path
+    local relative_dir=$(dirname "${module_path#${MODULES_DIR}/}")
+
+    # check if relative dir contain dir_blacklist
+    for dir in "${dir_blacklist[@]}"; do
+        if [[ $relative_dir == *$dir* ]]; then
+            echo "Skipping blacklisted dir: $relative_dir"
+            return
+        fi
+    done
+
+    # Ensure the target directory exists
+    mkdir -p "${TARGET_DIR}/${relative_dir}"
+    # Copy the module, preserving the directory structure
+    cp -a "${module_path}" "${TARGET_DIR}/${relative_dir}/"
+    
+    echo $module_path
+
+    # Recursively copy dependencies
+    local dependencies=$(modinfo -F depends "$module_path" | tr ',' '\n')
+    for dep in $dependencies; do
+        echo "Copying dep $dep..."
+        copy_module "$dep"
+    done
+}
+
+blacklist=("bluetooth" "soundcore" "cfg80211" "mac80211" "kvm" "iwlmvm" "iwlwifi" "btusb" "btintel" "mei" "rfkill"
+      "x_tables")
+
+# Read modules from lsmod, skipping the header line
+while IFS= read -r line; do
+    # Extract the module name from the line
+    echo "Processing line: $line"
+    module=$(echo "$line" | awk '{print $1}')
+    
+    # Skip if the module is in the blacklist
+    if [[ " ${blacklist[*]} " =~ " ${module} " ]]; then
+        echo "Skipping blacklisted module: $module"
+        continue
+    fi
+    
+    # Check if any keyword is present in the line
+    skip=false
+    for keyword in "${keywords[@]}"; do
+        if [[ "$line" =~ $keyword ]]; then
+            echo "Skipping line with keyword $keyword: $line"
+            skip=true
+            break
+        fi
+    done
+    
+    # Skip this iteration if a keyword was found
+    if [[ "$skip" == true ]]; then
+        continue
+    fi
+    
+    # Copy the module if it's not skipped
+    copy_module "$module"
+
+done < <(lsmod | tail -n +2) # Skip the header line of lsmod output
+
+# Iterate through the list of modules
+for mod in "${modules[@]}"; do
+  echo "Checking module $mod..."
+  # Check if the module is currently loaded
+  if lsmod | grep -q "$mod"; then
+    # If the module is loaded, call the script to load it into the initramfs (or perform any other required action)
+    echo "Module $mod is loaded, calling loader."
+    copy_module "$mod"
+  else
+    echo "Module $mod is not loaded, skipping."
+  fi
+done
+
+# go through force_modules and copy them
+for mod in "${force_modules[@]}"; do
+  echo "Checking module $mod..."
+  copy_module "$mod"
+done
+
+# go thorugh TARGET_DIR and uncompress all zst modules
+for module in $(find "${TARGET_DIR}" -name "*.zst"); do
+    unzstd "${module}"
+done
+
+# remove all zst modules
+find "${TARGET_DIR}" -name "*.zst" -exec rm -f {} \;
+
+# cp modules.dep and modules.alias
+cp "${MODULES_DIR}/modules.dep" "${TARGET_DIR}"
+cp "${MODULES_DIR}/modules.alias" "${TARGET_DIR}"
+cp "${MODULES_DIR}/modules.symbols" "${TARGET_DIR}"
+cp "${MODULES_DIR}/modules.order" "${TARGET_DIR}"
+cp "${MODULES_DIR}/modules.builtin" "${TARGET_DIR}"
+cp "${MODULES_DIR}/modules.builtin.modinfo" "${TARGET_DIR}"
+
+# create modules_list.txt
+find "${TARGET_DIR}" -name "*.ko" -exec basename {} \; > ${INITRAMFS_DIR}/module_list.txt
+
+# create the depmod
+chroot ${INITRAMFS_DIR} depmod -a
+
+# Create the initramfs image
+cd ${INITRAMFS_DIR}
+rm -rf /boot/${IMGNAME}.img
+#find . -print0 | cpio --null --create --verbose --format=newc | gzip > /boot/gentoo.img
+find . -print0 | cpio --null --create --verbose --format=newc > /tmp/${IMGNAME}.cpio
+# compress cpio with zstd
+zstd /tmp/${IMGNAME}.cpio -o /boot/${IMGNAME}.img
+
+cd /boot
+
+cp /usr/src/linux/arch/x86/boot/bzImage /boot/vmlinuz-gento
+# Generate new combined_init.img
+cat /boot/intel-ucode.img /boot/${IMGNAME}.img > /boot/combined_${IMGNAME}.img
+
+echo "New combined_init.img created"
+
+# Generate new kernel_cmd.txt
+kernel_cmdline="root=UUID=${IMGUUID} zswap.enabled=0"
+echo $kernel_cmdline > kernel_cmd.txt
+
+# Fetching section alignment from the EFI stub
+align="$(objdump -p /usr/lib/systemd/boot/efi/linuxx64.efi.stub | awk '{ if ($1 == "SectionAlignment"){print $2} }')"
+align=$((16#$align))
+
+# Calculating offsets
+osrel_offs="$(objdump -h "/usr/lib/systemd/boot/efi/linuxx64.efi.stub" | awk 'NF==7 {size=strtonum("0x"$3); offset=strtonum("0x"$4)} END {print size + offset}')"
+osrel_offs=$((osrel_offs + align - osrel_offs % align))
+
+cmdline_offs=$((osrel_offs + $(stat -Lc%s "/etc/os-release")))
+cmdline_offs=$((cmdline_offs + align - cmdline_offs % align))
+
+initrd_offs=$((cmdline_offs + $(stat -Lc%s "kernel_cmd.txt")))
+initrd_offs=$((initrd_offs + align - initrd_offs % align))
+
+linux_offs=$((initrd_offs + $(stat -Lc%s "/boot/combined_gentoo.img")))
+linux_offs=$((linux_offs + align - linux_offs % align))
+
+# Using objcopy to add sections and change VMAs
+objcopy \
+    --add-section .osrel="/etc/os-release" --change-section-vma .osrel=$(printf 0x%x $osrel_offs) \
+    --add-section .cmdline="kernel_cmd.txt" --change-section-vma .cmdline=$(printf 0x%x $cmdline_offs) \
+    --add-section .initrd="/boot/combined_gentoo.img" --change-section-vma .initrd=$(printf 0x%x $initrd_offs) \
+    --add-section .linux="/boot/vmlinuz-gentoo" --change-section-vma .linux=$(printf 0x%x $linux_offs) \
+    "/usr/lib/systemd/boot/efi/linuxx64.efi.stub" "linux.efi"
+
+echo "Unified kernel image created: linux.efi"
+
+mv linux.efi /boot/EFI/Linux/${IMGNAME}.efi
+
+echo "Unified kernel image moved to /boot/EFI/Linux/${IMGNAME}.efi"
+
+rm kernel_cmd.txt
+
+#efibootmgr --create --disk /dev/nvme0n1p1 --part partition_number --label "Arch Linux" --loader '\EFI\linux\Linux.efi' --unicode
