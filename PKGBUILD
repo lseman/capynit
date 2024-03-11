@@ -10,12 +10,14 @@ makedepends=('git' 'libxo' 'docbook-xml' 'docbook-xsl' "xmlto")
 source=("git+https://github.com/chimera-linux/chimerautils.git"
         "git+https://github.com/robxu9/bash-static.git"
         "git+https://anongit.gentoo.org/git/proj/pax-utils.git"
-        init)
+        init
+        kerneling
+        )
 md5sums=('SKIP'
          'SKIP'
          'SKIP'
          'c78fc1acc5f01752dd5dce6a505a357f')
-options=('!strip' '!emptydirs' 'staticlibs' '!lto')
+options=('!strip' 'emptydirs' 'staticlibs' '!lto')
 prepare() {
     # arch stuff for lddtree
     cd "$srcdir/pax-utils"
@@ -51,7 +53,7 @@ package() {
     capypath=${pkgdir}/opt/capynit
     mkdir -p $capypath
 
-    mkdir --parents $capypath/{dev,mnt/root,proc,root,sys,usr}
+    mkdir --parents $capypath/{dev,mnt/root,proc,root,sys,usr,run}
     cp --archive /dev/{null,console,tty} $capypath/dev/
     mkdir -p $capypath/usr/{bin,lib,lib64,etc}
     # create symbolic links
@@ -88,10 +90,15 @@ package() {
     cp $srcdir/bash-static/releases/bash $capypath/usr/bin/bash
     cp $srcdir/init $capypath/init
 
+    # add kerneling to /usr/bin
+    mkdir -p $pkgdir/usr/bin
+    cp $srcdir/kerneling $pkgdir/usr/bin/kerneling
+
     # if _encrypt is true, then we need to add some lines to init
     if $_encrypt; then
         # we change ENCRYPTED_ROOTFS to true in init
-        sed -i 's/ENCRYPTED_ROOTFS=false/ENCRYPTED_ROOTFS=true/g' $capypath/init
+        sed -i 's/ENCRYPTED_ROOTFS=/ENCRYPTED_ROOTFS=true/g' $capypath/init
+        sed -i 's/ENCRYPTED_ROOTFS=/ENCRYPTED_ROOTFS=true/g'$pkgdir/usr/bin/kerneling
     fi
 
     #sudo cp /usr/lib/libncursesw* $capypath/lib/

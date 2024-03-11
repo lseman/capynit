@@ -15,7 +15,10 @@ mkdir -p "${INITRAMFS_DIR}/lib/modules/${KERNEL_VERSION}"
 
 echo "Copying essential modules..."
 
-dir_blacklist=("virt" "net" "thermal" "hwmon" "events")
+dir_blacklist=("virt" "net" "thermal" "hwmon" "events" "sound" "bluetooth"
+    "kvm" "block" "input" "mtd" "misc"
+    "thunderbolt" "pmt")
+
 copy_module(){
     local module=$1
     # ignore modules starting with snd
@@ -58,10 +61,6 @@ copy_module(){
         copy_module "$dep"
     done
 }
-
-blacklist=("bluetooth" "soundcore" "cfg80211" "mac80211" "kvm" "iwlmvm" "iwlwifi" "btusb" "btintel" "mei" "rfkill"
-      "x_tables")
-
 # Read modules from lsmod, skipping the header line
 while IFS= read -r line; do
     # Extract the module name from the line
@@ -106,6 +105,21 @@ for mod in "${modules[@]}"; do
     echo "Module $mod is not loaded, skipping."
   fi
 done
+
+ENCRYPTED_ROOTFS=
+if [ -n "$ENCRYPTED_ROOTFS" ]; then
+    # force modules for luks encryption
+    force_modules=(
+        "dm_crypt"
+        "dm_mod"
+    )
+    for module in /usr/lib/modules/$(uname -r)/kernel/crypto/*.ko*; do
+        if [ -e "$module" ]; then
+            module_name=$(basename "$module" | sed 's/\.ko.*//') # Strip .ko and potential .zst or similar extensions
+            force_modules+=("$module_name")
+        fi
+    done
+fi
 
 # go through force_modules and copy them
 for mod in "${force_modules[@]}"; do

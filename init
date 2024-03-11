@@ -109,7 +109,7 @@ do
    load_module $mod_path
 done < module_list.txt
 
-ENCRYPTED_ROOTFS=false
+ENCRYPTED_ROOTFS=
 # do stuff to deal with encrypted rootfs
 
 args=$(cat /proc/cmdline)
@@ -120,14 +120,13 @@ echo "CAPY: Command line: $args" > /dev/kmsg
 if [ -n "$ENCRYPTED_ROOTFS" ]; then
     echo "CAPY: Encrypted rootfs detected" > /dev/kmsg
     # get uuid from /proc/cmdline
-    rootfsuuid=$(cat /proc/cmdline | grep -oP "root=UUID=\K[^\s]+")
+    rootfsuuid=$(cat /proc/cmdline | awk -F'UUID=' '{print $2}' | awk '{print $1}')
     echo "CAPY: rootfs uuid: $rootfsuuid" > /dev/kmsg
     # get the filesystem
     filesystem_root=$(findfs "UUID"="$rootfsuuid")
-    cryptsetup open --type luks $filesystem_root root
-    filesystem_root=/dev/mapper/root
+    cryptsetup open --type luks $filesystem_root luks-$rootfsuuid
+    filesystem_root=/dev/mapper/luks-$rootfsuuid
     # mount the root filesystem
-    check_filesystem $filesystem_root
     mount -o ro $filesystem_root /mnt/root
 else
     echo "CAPY: Unencrypted rootfs detected" > /dev/kmsg
@@ -144,5 +143,6 @@ umount /proc
 umount /sys
 umount /dev
 
+ls /mnt/root
 # switch to the real root and execute init
 exec switch_root /mnt/root /sbin/init
